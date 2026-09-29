@@ -50,7 +50,7 @@ def main():
 
     query = input("Pregunta: ")
 
-    documents = search(query, k=2)
+    documents = search(query, k=5)
 
     print("\nDocumentos recuperados:")
     print("-----------------------")
