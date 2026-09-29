@@ -4,7 +4,7 @@ response = requests.post(
     "http://localhost:11434/api/generate",
     json={
         "model": "qwen3:8b",
-        "prompt": "Explica qué es un RAG en una sola frase.",
+        "prompt": "¿Qué variantes están asociadas al gen LPL?",
         "stream": False
     }
 )
