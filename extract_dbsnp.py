@@ -1,14 +1,13 @@
+import bz2
 import json
-import glob
 
-INPUT_FILES = glob.glob("data/dbsnp/rs*.json")
+INPUT_FILE = "data/dbsnp/refsnp-chr22.json.bz2"
 OUTPUT_FILE = "data/documents.jsonl"
 
+MAX_VARIANTS = 10_000
 
-def extract_variant(filename):
-    with open(filename) as f:
-        data = json.load(f)
 
+def extract_variant(data):
     rs_id = int(data["refsnp_id"])
 
     placements = data["primary_snapshot_data"]["placements_with_allele"]
@@ -16,9 +15,11 @@ def extract_variant(filename):
     placement = None
     assembly = None
 
+    # Buscar placement GRCh38 de cromosoma y top-level
     for p in placements:
         traits = p["placement_annot"].get(
-            "seq_id_traits_by_assembly", []
+            "seq_id_traits_by_assembly",
+            []
         )
 
         for trait in traits:
@@ -34,17 +35,28 @@ def extract_variant(filename):
         if placement:
             break
 
+    # Algunos RefSNP pueden no tener este placement
     if placement is None:
         return None
 
+    # Ejemplo:
+    # NC_000008.11 -> 8
     seq_id = placement["seq_id"]
 
-    chromosome = seq_id.split("_")[1].split(".")[0].lstrip("0")
-
-    position = (
-        placement["alleles"][0]["allele"]["spdi"]["position"] + 1
+    chromosome = (
+        seq_id.split("_")[1]
+        .split(".")[0]
+        .lstrip("0")
     )
 
+    # SPDI utiliza posiciones 0-based.
+    # Nosotros almacenamos posición 1-based.
+    position = (
+        placement["alleles"][0]["allele"]["spdi"]["position"]
+        + 1
+    )
+
+    # Obtener alelos únicos
     alleles = []
 
     for allele_data in placement["alleles"]:
@@ -53,15 +65,18 @@ def extract_variant(filename):
         if inserted not in alleles:
             alleles.append(inserted)
 
+    # Buscar genes
     genes = []
 
     annotations = data["primary_snapshot_data"].get(
-        "allele_annotations", []
+        "allele_annotations",
+        []
     )
 
     for annotation in annotations:
         for assembly_annotation in annotation.get(
-            "assembly_annotation", []
+            "assembly_annotation",
+            []
         ):
             for gene in assembly_annotation.get("genes", []):
                 locus = gene.get("locus")
@@ -71,6 +86,7 @@ def extract_variant(filename):
 
     gene_text = ", ".join(genes) if genes else None
 
+    # Crear documento textual para el embedding
     content = (
         f"RefSNP rs{rs_id}. "
         f"Assembly {assembly}. "
@@ -93,18 +109,71 @@ def extract_variant(filename):
     }
 
 
-with open(OUTPUT_FILE, "w") as output:
+def main():
+    processed = 0
+    extracted = 0
+    skipped = 0
 
-    for filename in INPUT_FILES:
-        print(f"Procesando {filename}...")
+    print(f"Archivo de entrada: {INPUT_FILE}")
+    print(f"Objetivo: {MAX_VARIANTS:,} variantes")
+    print()
 
-        variant = extract_variant(filename)
+    with (
+        bz2.open(INPUT_FILE, "rt") as input_file,
+        open(OUTPUT_FILE, "w") as output_file
+    ):
+        for line in input_file:
 
-        if variant:
-            output.write(json.dumps(variant) + "\n")
+            if extracted >= MAX_VARIANTS:
+                break
 
-            print(json.dumps(variant, indent=2))
-        else:
-            print("No se encontró un placement GRCh38.")
+            line = line.strip()
 
-print(f"\nDocumentos guardados en: {OUTPUT_FILE}")
+            if not line:
+                continue
+
+            processed += 1
+
+            try:
+                data = json.loads(line)
+                variant = extract_variant(data)
+
+                if variant is None:
+                    skipped += 1
+                    continue
+
+                output_file.write(
+                    json.dumps(
+                        variant,
+                        ensure_ascii=False
+                    ) + "\n"
+                )
+
+                extracted += 1
+
+                if extracted % 100 == 0:
+                    print(
+                        f"Extraídas: "
+                        f"{extracted:,}/{MAX_VARIANTS:,} "
+                        f"| procesadas: {processed:,} "
+                        f"| omitidas: {skipped:,}"
+                    )
+
+            except Exception as e:
+                skipped += 1
+
+                print(
+                    f"Error procesando registro "
+                    f"{processed}: {e}"
+                )
+
+    print()
+    print("Proceso terminado.")
+    print(f"Registros procesados: {processed:,}")
+    print(f"Variantes extraídas:  {extracted:,}")
+    print(f"Registros omitidos:   {skipped:,}")
+    print(f"Archivo generado:     {OUTPUT_FILE}")
+
+
+if __name__ == "__main__":
+    main()
