@@ -1,47 +1,63 @@
 import requests
-import math
+import psycopg
 
-texts = [
-    "Python es un lenguaje de programación.",
-    "Python permite desarrollar software y aplicaciones.",
-    "Me gusta comer pizza los fines de semana."
-]
+OLLAMA_URL = "http://localhost:11434/api/embeddings"
+MODEL = "nomic-embed-text"
 
 
 def get_embedding(text):
     response = requests.post(
-        "http://localhost:11434/api/embeddings",
+        OLLAMA_URL,
         json={
-            "model": "nomic-embed-text",
+            "model": MODEL,
             "prompt": text
         }
     )
 
+    response.raise_for_status()
+
     return response.json()["embedding"]
 
 
-def cosine_similarity(a, b):
-    dot_product = sum(x * y for x, y in zip(a, b))
+def search(query, k=2):
 
-    magnitude_a = math.sqrt(sum(x * x for x in a))
-    magnitude_b = math.sqrt(sum(x * x for x in b))
+    query_embedding = get_embedding(query)
 
-    return dot_product / (magnitude_a * magnitude_b)
+    with psycopg.connect("dbname=rag_demo") as conn:
+
+        with conn.cursor() as cur:
+
+            cur.execute(
+                """
+                SELECT
+                    rs_id,
+                    gene,
+                    content,
+                    embedding <=> %s::vector AS distance
+                FROM variants
+                ORDER BY embedding <=> %s::vector
+                LIMIT %s
+                """,
+                (
+                    query_embedding,
+                    query_embedding,
+                    k
+                )
+            )
+
+            return cur.fetchall()
 
 
-embeddings = [get_embedding(text) for text in texts]
+if __name__ == "__main__":
 
-for i in range(len(texts)):
-    for j in range(i + 1, len(texts)):
-        similarity = cosine_similarity(
-            embeddings[i],
-            embeddings[j]
-        )
+    query = input("Pregunta: ")
 
-        print(
-            f"\n'{texts[i]}'"
-            f"\nvs."
-            f"\n'{texts[j]}'"
-        )
+    results = search(query, k=2)
 
-        print(f"Similitud: {similarity:.4f}")
+    print("\nDocumentos recuperados:\n")
+
+    for rs_id, gene, content, distance in results:
+
+        print(f"rs{rs_id} | distancia: {distance:.4f}")
+        print(content)
+        print()
