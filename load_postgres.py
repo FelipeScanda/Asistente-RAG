@@ -2,41 +2,50 @@ import json
 import psycopg
 
 DATABASE_URL = "dbname=rag_demo"
+INPUT_FILE = "data/documents.jsonl"
 
-with psycopg.connect(DATABASE_URL) as conn:
 
-    with conn.cursor() as cur:
+def main():
+    documents = []
 
-        with open("data/documents.jsonl") as f:
+    with open(INPUT_FILE) as f:
+        for line in f:
+            documents.append(json.loads(line))
 
-            for line in f:
-                document = json.loads(line)
+    print(f"Documentos encontrados: {len(documents):,}")
 
-                cur.execute(
-                    """
-                    INSERT INTO variants (
-                        rs_id,
-                        assembly,
-                        chromosome,
-                        position,
-                        alleles,
-                        gene,
-                        content
-                    )
-                    VALUES (%s, %s, %s, %s, %s, %s, %s)
-                    ON CONFLICT (rs_id) DO NOTHING
-                    """,
-                    (
-                        document["rs_id"],
-                        document["assembly"],
-                        document["chromosome"],
-                        document["position"],
-                        document["alleles"],
-                        document["gene"],
-                        document["content"],
-                    )
+    with psycopg.connect(DATABASE_URL) as conn:
+        with conn.cursor() as cur:
+
+            cur.executemany(
+                """
+                INSERT INTO variants (
+                    rs_id,
+                    assembly,
+                    chromosome,
+                    position,
+                    alleles,
+                    gene,
+                    content
                 )
+                VALUES (
+                    %(rs_id)s,
+                    %(assembly)s,
+                    %(chromosome)s,
+                    %(position)s,
+                    %(alleles)s,
+                    %(gene)s,
+                    %(content)s
+                )
+                ON CONFLICT (rs_id) DO NOTHING
+                """,
+                documents
+            )
 
-    conn.commit()
+        conn.commit()
 
-print("Documentos cargados correctamente.")
+    print("Documentos cargados correctamente.")
+
+
+if __name__ == "__main__":
+    main()
