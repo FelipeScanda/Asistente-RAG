@@ -14,7 +14,7 @@ def generate_answer(query, documents):
     )
 
     prompt = f"""
-Eres un asistente inteligente.
+Eres un asistente inteligente que explica preguntas de genomica al usuario.
 
 Debes contestar la pregunta del usuario usando solo la informacion que está en el texto de abajo.
 
