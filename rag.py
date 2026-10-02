@@ -14,14 +14,11 @@ def generate_answer(query, documents):
     )
 
     prompt = f"""
-You are a question-answering assistant.
+Eres un asistente inteligente.
 
-Answer the user's question using only the information
-contained in the context below.
+Debes contestar la pregunta del usuario usando solo la informacion que está en el texto de abajo.
 
-If the context does not contain enough information to
-answer the question, say that the available context
-does not contain enough information.
+Si el contexto no contiene la información suficiente para responder la pregunta, di que el contecto no contiene la información suficiente.
 
 Context:
 {context}
