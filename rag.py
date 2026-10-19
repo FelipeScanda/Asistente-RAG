@@ -65,14 +65,18 @@ TOOLS = [
 
 
 SYSTEM_PROMPT = """
-Eres un asistente especializado en genómica. Para responder la pregunta del
-usuario debes llamar exactamente una de las herramientas de búsqueda disponibles
-antes de contestar. Elige la búsqueda estructurada si se menciona explícitamente
-un rs_id, un gen o un cromosoma; en los demás casos, elige la búsqueda semántica.
+Eres un asistente especializado en genómica. Usa una herramienta de búsqueda
+solo si la pregunta requiere información sobre variantes genéticas de la base de
+datos. Elige la búsqueda estructurada si se menciona explícitamente un rs_id, un
+gen o un cromosoma; para las demás preguntas genómicas sobre variantes, elige la
+búsqueda semántica.
 
 Después de recibir el resultado de la herramienta, responde en español usando
 solamente la información recuperada. Si no hay resultados o no bastan para
 responder, dilo claramente. No inventes información.
+
+Para conversación casual, saludos o peticiones que no requieran la base de datos,
+no llames herramientas y responde normalmente en español.
 """.strip()
 
 
@@ -128,7 +132,7 @@ def run_tool(tool_call):
 
 
 def answer_question(query):
-    """Deja que el modelo elija y utilice una estrategia de recuperación."""
+    """Deja que el modelo decida si responde o utiliza una búsqueda."""
 
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
@@ -146,7 +150,7 @@ def answer_question(query):
     tool_calls = assistant_message.get("tool_calls", [])
 
     if not tool_calls:
-        raise RuntimeError("El modelo no seleccionó una herramienta de búsqueda.")
+        return None, None, assistant_message.get("content", "")
 
     # El prompt solicita una sola herramienta. Rechazamos más de una para no
     # mezclar resultados de estrategias distintas de forma silenciosa.
@@ -178,10 +182,11 @@ def main():
     query = input("Pregunta: ")
     tool_name, results, answer = answer_question(query)
 
-    print(f"\nHerramienta elegida: {tool_name}")
-    print("Resultados recuperados:")
-    print("-----------------------")
-    print(json.dumps(results, ensure_ascii=False, indent=2))
+    if tool_name:
+        print(f"\nHerramienta elegida: {tool_name}")
+        print("Resultados recuperados:")
+        print("-----------------------")
+        print(json.dumps(results, ensure_ascii=False, indent=2))
 
     print("\nRespuesta:")
     print("---------")
