@@ -131,13 +131,13 @@ def run_tool(tool_call):
     raise ValueError(f"Herramienta no reconocida: {name}")
 
 
-def answer_question(query):
-    """Deja que el modelo decida si responde o utiliza una búsqueda."""
+def answer_question(query, messages=None):
+    """Procesa un turno y conserva el historial recibido de la conversación."""
 
-    messages = [
-        {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": query},
-    ]
+    if messages is None:
+        messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+
+    messages.append({"role": "user", "content": query})
 
     response = requests.post(
         OLLAMA_CHAT_URL,
@@ -175,22 +175,38 @@ def answer_question(query):
     )
     response.raise_for_status()
 
-    return tool_name, result, response.json()["message"]["content"]
+    final_message = response.json()["message"]
+    messages.append(final_message)
+
+    return tool_name, result, final_message["content"]
 
 
 def main():
-    query = input("Pregunta: ")
-    tool_name, results, answer = answer_question(query)
+    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
 
-    if tool_name:
-        print(f"\nHerramienta elegida: {tool_name}")
-        print("Resultados recuperados:")
-        print("-----------------------")
-        print(json.dumps(results, ensure_ascii=False, indent=2))
+    print("Chat iniciado. Escribe 'salir' para terminar.")
 
-    print("\nRespuesta:")
-    print("---------")
-    print(answer)
+    while True:
+        query = input("\nTú: ").strip()
+
+        if query.lower() in {"salir", "exit", "quit"}:
+            print("Hasta luego.")
+            break
+
+        if not query:
+            continue
+
+        tool_name, results, answer = answer_question(query, messages)
+
+        if tool_name:
+            print(f"\nHerramienta elegida: {tool_name}")
+            print("Resultados recuperados:")
+            print("-----------------------")
+            print(json.dumps(results, ensure_ascii=False, indent=2))
+
+        print("\nAsistente:")
+        print("-----------")
+        print(answer)
 
 
 if __name__ == "__main__":
