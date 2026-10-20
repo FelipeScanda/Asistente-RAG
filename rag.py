@@ -1,67 +1,15 @@
 import json
 
-import requests
+from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.tools import tool
+from langchain_ollama import ChatOllama
 
 from embedding import search as search_semantic
 from search import search_structured
 
 
-OLLAMA_CHAT_URL = "http://localhost:11434/api/chat"
+OLLAMA_BASE_URL = "http://localhost:11434"
 LLM_MODEL = "qwen3:8b"
-
-
-TOOLS = [
-    {
-        "type": "function",
-        "function": {
-            "name": "buscar_semanticamente",
-            "description": (
-                "Busca variantes por similitud semántica. Úsala para preguntas "
-                "conceptuales o de lenguaje natural que no identifican de forma "
-                "explícita una variante, gen o cromosoma."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "consulta": {
-                        "type": "string",
-                        "description": "La pregunta del usuario.",
-                    },
-                    "limite": {
-                        "type": "integer",
-                        "description": "Máximo de resultados a recuperar.",
-                    },
-                },
-                "required": ["consulta"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "buscar_estructuradamente",
-            "description": (
-                "Busca variantes mediante filtros exactos de rs_id, gen o "
-                "cromosoma. Úsala cuando la pregunta mencione explícitamente "
-                "alguno de esos datos."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "consulta": {
-                        "type": "string",
-                        "description": "La pregunta del usuario.",
-                    },
-                    "limite": {
-                        "type": "integer",
-                        "description": "Máximo de resultados a recuperar.",
-                    },
-                },
-                "required": ["consulta"],
-            },
-        },
-    },
-]
 
 
 SYSTEM_PROMPT = """
@@ -106,51 +54,50 @@ def format_structured_results(filters, rows):
     }
 
 
-def run_tool(tool_call):
-    """Ejecuta una de las herramientas que el modelo solicitó."""
+@tool
+def buscar_semanticamente(consulta: str, limite: int = 5) -> str:
+    """Busca variantes por similitud semántica.
 
-    function = tool_call["function"]
-    name = function["name"]
-    arguments = function.get("arguments", {})
+    Úsala para preguntas genómicas conceptuales que no identifican de forma
+    explícita una variante, un gen o un cromosoma.
+    """
 
-    # Ollama normalmente entrega un diccionario, pero aceptamos JSON para que
-    # el programa siga funcionando con versiones que lo devuelvan como texto.
-    if isinstance(arguments, str):
-        arguments = json.loads(arguments)
+    rows = search_semantic(consulta, k=limite)
+    return json.dumps(format_semantic_results(rows), ensure_ascii=False)
 
-    query = arguments["consulta"]
-    limit = arguments.get("limite", 5)
 
-    if name == "buscar_semanticamente":
-        return format_semantic_results(search_semantic(query, k=limit))
+@tool
+def buscar_estructuradamente(consulta: str, limite: int = 5) -> str:
+    """Busca variantes usando filtros exactos de rs_id, gen o cromosoma.
 
-    if name == "buscar_estructuradamente":
-        filters, rows = search_structured(query, k=limit)
-        return format_structured_results(filters, rows)
+    Úsala cuando la pregunta mencione explícitamente alguno de esos datos.
+    """
 
-    raise ValueError(f"Herramienta no reconocida: {name}")
+    filters, rows = search_structured(consulta, k=limite)
+    return json.dumps(format_structured_results(filters, rows), ensure_ascii=False)
+
+
+TOOLS = [buscar_semanticamente, buscar_estructuradamente]
+TOOLS_BY_NAME = {tool.name: tool for tool in TOOLS}
+
+LLM = ChatOllama(model=LLM_MODEL, base_url=OLLAMA_BASE_URL, temperature=0)
+LLM_WITH_TOOLS = LLM.bind_tools(TOOLS)
 
 
 def answer_question(query, messages=None):
     """Procesa un turno y conserva el historial recibido de la conversación."""
 
     if messages is None:
-        messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+        messages = [SystemMessage(content=SYSTEM_PROMPT)]
 
-    messages.append({"role": "user", "content": query})
+    messages.append(HumanMessage(content=query))
 
-    response = requests.post(
-        OLLAMA_CHAT_URL,
-        json={"model": LLM_MODEL, "messages": messages, "tools": TOOLS, "stream": False},
-    )
-    response.raise_for_status()
-
-    assistant_message = response.json()["message"]
+    assistant_message = LLM_WITH_TOOLS.invoke(messages)
     messages.append(assistant_message)
-    tool_calls = assistant_message.get("tool_calls", [])
+    tool_calls = assistant_message.tool_calls
 
     if not tool_calls:
-        return None, None, assistant_message.get("content", "")
+        return None, None, assistant_message.content
 
     # El prompt solicita una sola herramienta. Rechazamos más de una para no
     # mezclar resultados de estrategias distintas de forma silenciosa.
@@ -158,31 +105,19 @@ def answer_question(query, messages=None):
         raise RuntimeError("El modelo solicitó más de una herramienta de búsqueda.")
 
     tool_call = tool_calls[0]
-    result = run_tool(tool_call)
-    tool_name = tool_call["function"]["name"]
+    tool_name = tool_call["name"]
+    tool_message = TOOLS_BY_NAME[tool_name].invoke(tool_call)
+    messages.append(tool_message)
+    result = json.loads(tool_message.content)
 
-    messages.append(
-        {
-            "role": "tool",
-            "tool_name": tool_name,
-            "content": json.dumps(result, ensure_ascii=False),
-        }
-    )
-
-    response = requests.post(
-        OLLAMA_CHAT_URL,
-        json={"model": LLM_MODEL, "messages": messages, "stream": False},
-    )
-    response.raise_for_status()
-
-    final_message = response.json()["message"]
+    final_message = LLM.invoke(messages)
     messages.append(final_message)
 
-    return tool_name, result, final_message["content"]
+    return tool_name, result, final_message.content
 
 
 def main():
-    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    messages = [SystemMessage(content=SYSTEM_PROMPT)]
 
     print("Chat iniciado. Escribe 'salir' para terminar.")
 
