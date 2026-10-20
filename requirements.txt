@@ -1,0 +1,5 @@
+langchain
+langchain-ollama
+langextract
+psycopg
+requests
