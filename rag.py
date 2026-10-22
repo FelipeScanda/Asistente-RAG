@@ -119,7 +119,7 @@ def answer_question(query, messages=None):
 def main():
     messages = [SystemMessage(content=SYSTEM_PROMPT)]
 
-    print("Chat iniciado. Escribe 'salir' para terminar.")
+    print("Hola 😊 soy Genomin, el asistente inteligente de GenomIA. Puedes hacerme preguntas sobre genomica y yo las responderé. Escribe 'salir' para terminar.")
 
     while True:
         query = input("\nTú: ").strip()
