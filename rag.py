@@ -1,11 +1,12 @@
 import json
 
-from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
 from langchain_core.tools import tool
 from langchain_ollama import ChatOllama
 
 from embedding import search as search_semantic
 from search import search_structured
+from web_search import buscar_en_internet
 
 
 OLLAMA_BASE_URL = "http://localhost:11434"
@@ -13,15 +14,22 @@ LLM_MODEL = "qwen3:8b"
 
 
 SYSTEM_PROMPT = """
-Eres un asistente especializado en genómica. Usa una herramienta de búsqueda
-solo si la pregunta requiere información sobre variantes genéticas de la base de
-datos. Elige la búsqueda estructurada si se menciona explícitamente un rs_id, un
-gen o un cromosoma; para las demás preguntas genómicas sobre variantes, elige la
-búsqueda semántica.
+Eres un asistente especializado en genómica. Puedes utilizar una sola
+herramienta de búsqueda cuando la pregunta requiera información verificable.
+
+Elige la búsqueda estructurada si se menciona explícitamente un rs_id, un gen o
+un cromosoma. Elige la búsqueda semántica para preguntas sobre las variantes de
+la base de datos local que no incluyan filtros exactos. Elige buscar_en_internet
+para preguntas conceptuales, mecanismos biológicos, evidencia científica,
+información reciente o cuando el usuario solicite bibliografía.
 
 Después de recibir el resultado de la herramienta, responde en español usando
 solamente la información recuperada. Si no hay resultados o no bastan para
 responder, dilo claramente. No inventes información.
+
+Cuando uses buscar_en_internet, cita las fuentes utilizadas en el texto como
+[1], [2], etcétera, y termina con una sección "Referencias" que enumere solo
+las referencias entregadas por la herramienta, incluyendo sus enlaces PubMed.
 
 Para conversación casual, saludos o peticiones que no requieran la base de datos,
 no llames herramientas y responde normalmente en español.
@@ -77,10 +85,10 @@ def buscar_estructuradamente(consulta: str, limite: int = 5) -> str:
     return json.dumps(format_structured_results(filters, rows), ensure_ascii=False)
 
 
-TOOLS = [buscar_semanticamente, buscar_estructuradamente]
+TOOLS = [buscar_semanticamente, buscar_estructuradamente, buscar_en_internet]
 TOOLS_BY_NAME = {tool.name: tool for tool in TOOLS}
 
-LLM = ChatOllama(model=LLM_MODEL, base_url=OLLAMA_BASE_URL, temperature=0)
+LLM = ChatOllama(model=LLM_MODEL, base_url=OLLAMA_BASE_URL, temperature=0, reasoning=False)
 LLM_WITH_TOOLS = LLM.bind_tools(TOOLS)
 
 
@@ -106,7 +114,12 @@ def answer_question(query, messages=None):
 
     tool_call = tool_calls[0]
     tool_name = tool_call["name"]
-    tool_message = TOOLS_BY_NAME[tool_name].invoke(tool_call)
+    tool_result = TOOLS_BY_NAME[tool_name].invoke(tool_call["args"])
+    tool_message = ToolMessage(
+        content=tool_result,
+        tool_call_id=tool_call["id"],
+        name=tool_name,
+    )
     messages.append(tool_message)
     result = json.loads(tool_message.content)
 
