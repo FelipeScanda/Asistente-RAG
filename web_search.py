@@ -166,15 +166,3 @@ def search_pubmed(query, limit=MAX_RESULTS):
         }
     except (requests.RequestException, ValueError, element_tree.ParseError) as error:
         return {"query": query, "sources": [], "error": str(error)}
-
-
-@tool
-def buscar_en_internet(consulta: str, limite: int = MAX_RESULTS) -> str:
-    """Busca literatura biomédica en Internet mediante PubMed.
-
-    Úsala para preguntas conceptuales, mecanismos biológicos, evidencia
-    científica, información reciente o cuando el usuario solicite bibliografía.
-    No la uses para buscar una variante concreta guardada en la base local.
-    """
-
-    return json.dumps(search_pubmed(consulta, limit=limite), ensure_ascii=False)

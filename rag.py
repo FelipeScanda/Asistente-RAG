@@ -6,7 +6,7 @@ from langchain_ollama import ChatOllama
 
 from embedding import search as search_semantic
 from search import search_structured
-from web_search import buscar_en_internet
+from web_search import search_pubmed
 
 
 OLLAMA_BASE_URL = "http://localhost:11434"
@@ -14,18 +14,27 @@ LLM_MODEL = "qwen3:8b"
 
 
 SYSTEM_PROMPT = """
-Eres Genomin, un asistente especializado en genómica. Puedes utilizar una sola
-herramienta de búsqueda cuando la pregunta requiera información verificable.
+Eres Genomin, un asistente especializado en genómica. No respondas preguntas
+factuales, conceptuales ni científicas usando solamente tu conocimiento interno:
+antes debes llamar exactamente una herramienta de búsqueda. Si dudas entre la
+búsqueda semántica y buscar_en_internet, prioriza buscar_en_internet.
 
-Elige la búsqueda estructurada si se menciona explícitamente un rs_id, un gen o
-un cromosoma. Elige la búsqueda semántica para preguntas sobre las variantes de
-la base de datos local que no incluyan filtros exactos. Elige buscar_en_internet
-para preguntas conceptuales, mecanismos biológicos, evidencia científica,
-información reciente o cuando el usuario solicite bibliografía.
+Selecciona la herramienta siguiendo este orden:
+1. buscar_estructuradamente: cuando se mencione explícitamente un rs_id, un gen
+   o un cromosoma y la respuesta pueda obtenerse de la base local.
+2. buscar_semanticamente: solo para preguntas sobre variantes presentes en la
+   base local que no tengan filtros exactos.
+3. buscar_en_internet: para conceptos, mecanismos biológicos, evidencia
+   científica, información reciente, preguntas que pidan bibliografía o toda
+   pregunta cuya respuesta no esté claramente limitada a la base local.
 
-Después de recibir el resultado de la herramienta, responde en español usando
-solamente la información recuperada. Si no hay resultados o no bastan para
-responder, dilo claramente. No inventes información.
+Las preguntas que soliciten bibliografía, artículos, evidencia o fuentes deben
+usar siempre buscar_en_internet. Nunca inventes, completes ni cites referencias
+que no hayan sido entregadas por una herramienta.
+
+Después de recibir el resultado de una herramienta, responde en español usando
+solamente la información recuperada. Si no hay resultados o no son suficientes,
+dilo claramente.
 
 Cuando uses buscar_en_internet, cita las fuentes utilizadas en el texto como
 [1], [2], etcétera, y termina con una sección "Referencias" que enumere solo
@@ -90,6 +99,16 @@ def buscar_estructuradamente(consulta: str, limite: int = 5) -> str:
     filters, rows = search_structured(consulta, k=limite)
     return json.dumps(format_structured_results(filters, rows), ensure_ascii=False)
 
+@tool
+def buscar_en_internet(consulta: str, limite: int = 3) -> str:
+    """Busca literatura biomédica en Internet mediante PubMed.
+
+    Úsala para preguntas conceptuales, mecanismos biológicos, evidencia
+    científica, información reciente o cuando el usuario solicite bibliografía.
+    No la uses para buscar una variante concreta guardada en la base local.
+    """
+
+    return json.dumps(search_pubmed(consulta, limit=limite), ensure_ascii=False)
 
 TOOLS = [buscar_semanticamente, buscar_estructuradamente, buscar_en_internet]
 TOOLS_BY_NAME = {tool.name: tool for tool in TOOLS}
